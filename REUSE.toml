@@ -1,0 +1,20 @@
+version = 1
+
+[[annotations]]
+path = ["**.h", "**.cpp"]
+SPDX-FileCopyrightText = "2026 Pier Luigi Fiorini"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = [
+    ".clang-format",
+    ".gitignore",
+    ".github/**",
+    ".vscode/**",
+    ".claude/**",
+    "CMakeLists.txt",
+    "README.md",
+    "LICENSES/**",
+]
+SPDX-FileCopyrightText = "2026 Pier Luigi Fiorini"
+SPDX-License-Identifier = "CC0-1.0"
