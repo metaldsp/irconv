@@ -1,0 +1,15 @@
+{
+    "hooks": {
+        "PostToolUse": [
+            {
+                "matcher": "Write|Edit|str_replace_based_edit_tool|create_file|MultiEdit|multi_replace_string_in_file",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "bash .claude/hooks/clang-format.sh"
+                    }
+                ]
+            }
+        ]
+    }
+}
