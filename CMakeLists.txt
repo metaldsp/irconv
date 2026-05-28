@@ -24,6 +24,9 @@ if(NOT TARGET juce::juce_core)
     FetchContent_MakeAvailable(JUCE)
 endif()
 
+# Add third-party libraries.
+add_subdirectory(3rdparty/FFTConvolver)
+
 # ---------------------------------------------------------------------------
 # Register the JUCE module.
 #
@@ -38,6 +41,7 @@ endif()
 #   target_link_libraries(MyTarget PRIVATE irconv)
 # ---------------------------------------------------------------------------
 juce_add_module("${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(irconv INTERFACE FFTConvolver)
 
 # Tests — only when irconv is the top-level project, not when used as a submodule
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
