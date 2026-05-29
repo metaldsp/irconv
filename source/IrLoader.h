@@ -65,6 +65,9 @@ public:
      */
     bool loadImpulseResponse(const juce::AudioBuffer<float> &ir, double sourceSampleRate);
 
+    /** Unloads the current IR. The audio thread will pass signal through unmodified. */
+    void clearImpulseResponse() noexcept;
+
 private:
     //==============================================================================
     void initConvolvers(const juce::AudioBuffer<float> &ir);

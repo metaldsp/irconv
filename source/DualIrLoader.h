@@ -53,6 +53,9 @@ public:
     bool loadImpulseResponseA(const juce::AudioBuffer<float> &ir, double sourceSampleRate);
     bool loadImpulseResponseB(const juce::AudioBuffer<float> &ir, double sourceSampleRate);
 
+    void clearImpulseResponseA() noexcept;
+    void clearImpulseResponseB() noexcept;
+
     //==============================================================================
     // Audio-thread safe. Stores the target value atomically; the smoother
     // ramps to it inside the next process() call.
