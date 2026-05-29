@@ -123,4 +123,18 @@ void DualIrLoader::setBlend(float blend01) noexcept
     m_blendTarget.store(juce::jlimit(0.0f, 1.0f, blend01), std::memory_order_relaxed);
 }
 
+//==============================================================================
+
+void DualIrLoader::clearImpulseResponseA() noexcept
+{
+    m_irA.clearImpulseResponse();
+    m_irAFile = juce::File{};
+}
+
+void DualIrLoader::clearImpulseResponseB() noexcept
+{
+    m_irB.clearImpulseResponse();
+    m_irBFile = juce::File{};
+}
+
 } // namespace DSP

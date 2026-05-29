@@ -97,6 +97,12 @@ bool IrLoader::loadImpulseResponse(const juce::AudioBuffer<float> &ir, double so
     return true;
 }
 
+void IrLoader::clearImpulseResponse() noexcept
+{
+    m_activeSet.store(-1, std::memory_order_release);
+    m_irStored.store(false, std::memory_order_release);
+}
+
 //==============================================================================
 
 void IrLoader::initConvolvers(const juce::AudioBuffer<float> &ir)
