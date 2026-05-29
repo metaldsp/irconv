@@ -94,12 +94,18 @@ void DualIrLoader::process(juce::dsp::ProcessContextReplacing<float> &context)
 
 bool DualIrLoader::loadImpulseResponseA(const juce::File &irFile)
 {
-    return m_irA.loadImpulseResponse(irFile);
+    if (!m_irA.loadImpulseResponse(irFile))
+        return false;
+    m_irAFile = irFile;
+    return true;
 }
 
 bool DualIrLoader::loadImpulseResponseB(const juce::File &irFile)
 {
-    return m_irB.loadImpulseResponse(irFile);
+    if (!m_irB.loadImpulseResponse(irFile))
+        return false;
+    m_irBFile = irFile;
+    return true;
 }
 
 bool DualIrLoader::loadImpulseResponseA(const juce::AudioBuffer<float> &ir, double sourceSampleRate)
