@@ -58,6 +58,11 @@ public:
     // ramps to it inside the next process() call.
     void setBlend(float blend01) noexcept;
 
+    //==============================================================================
+    // Message-thread only — not RT-safe.
+    [[nodiscard]] const juce::File &getImpulseResponseFileA() const noexcept { return m_irAFile; }
+    [[nodiscard]] const juce::File &getImpulseResponseFileB() const noexcept { return m_irBFile; }
+
 private:
     IrLoader m_irA;
     IrLoader m_irB;
@@ -66,6 +71,9 @@ private:
     juce::LinearSmoothedValue<float> m_blendSmoother; // audio-thread only
     std::atomic<float> m_blendTarget{0.5f};           // any thread → audio
     juce::HeapBlock<float *> m_blockChannelPtrs;      // sized in prepare()
+
+    juce::File m_irAFile;
+    juce::File m_irBFile;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DualIrLoader)
 };
