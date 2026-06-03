@@ -55,18 +55,37 @@ void DualIrLoader::process(juce::dsp::ProcessContextReplacing<float> &context)
     // untouched rather than indexed out of bounds.
     const auto channels = std::min(numCh, static_cast<size_t>(m_scratch.getNumChannels()));
 
-    // Advance the smoother once for the whole block (O(1)).
+    // Advance the smoother unconditionally so its state tracks real time even
+    // in the single-IR branches; wStart/wEnd are only used in the both-loaded path.
     m_blendSmoother.setTargetValue(m_blendTarget.load(std::memory_order_relaxed));
     const float wStart = m_blendSmoother.getCurrentValue();
     const float wEnd = m_blendSmoother.skip(static_cast<int>(numSamples));
 
-    // Snapshot dry input into scratch so IR B can consume it after IR A
-    // overwrites the main block.
+    const bool aLoaded = m_irA.isLoaded();
+    const bool bLoaded = m_irB.isLoaded();
+
+    // Only blend when both IRs are active; otherwise route through whichever single IR
+    // is loaded (or do nothing if neither is).
+    if (!aLoaded && !bLoaded)
+        return;
+
+    if (aLoaded && !bLoaded) {
+        m_irA.process(context);
+        return;
+    }
+
+    if (!aLoaded && bLoaded) {
+        m_irB.process(context);
+        return;
+    }
+
+    // Both loaded — snapshot dry input into scratch so IR B can consume it
+    // after IR A overwrites the main block.
     juce::dsp::AudioBlock<float> scratchBlock{m_scratch};
     auto scratch = scratchBlock.getSubsetChannelBlock(0, channels).getSubBlock(0, numSamples);
     scratch.copyFrom(block.getSubsetChannelBlock(0, channels));
 
-    // Wet A in place on the output block (only the channels we have scratch for).
+    // Wet A in place on the output block.
     auto blockA = block.getSubsetChannelBlock(0, channels);
     juce::dsp::ProcessContextReplacing<float> ctxA{blockA};
     m_irA.process(ctxA);
@@ -75,8 +94,8 @@ void DualIrLoader::process(juce::dsp::ProcessContextReplacing<float> &context)
     juce::dsp::ProcessContextReplacing<float> ctxB{scratch};
     m_irB.process(ctxB);
 
-    // In-place linear crossfade — two SIMD passes per channel, zero extra
-    // copies. out[i] := wetA[i] * (1 - w[i]) + wetB[i] * w[i].
+    // In-place linear crossfade: out[i] = wetA[i] * (1 - w[i]) + wetB[i] * w[i].
+    // Two SIMD ramp passes per channel, zero extra copies.
     for (size_t ch = 0; ch < channels; ++ch)
         m_blockChannelPtrs[ch] = block.getChannelPointer(ch);
 
