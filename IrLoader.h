@@ -81,6 +81,9 @@ public:
     /** Unloads the current IR. The audio thread will pass signal through unmodified. */
     void clearImpulseResponse() noexcept;
 
+    /** RT-safe. Returns true once a convolver set has been built and published. */
+    [[nodiscard]] bool isLoaded() const noexcept;
+
     /**
      * Enables or disables peak normalisation applied when loading an IR.
      * Takes effect on the next loadImpulseResponse() call; does not retroactively
