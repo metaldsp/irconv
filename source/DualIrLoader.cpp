@@ -137,4 +137,10 @@ void DualIrLoader::clearImpulseResponseB() noexcept
     m_irBFile = juce::File{};
 }
 
+void DualIrLoader::setNormalise(bool normalise) noexcept
+{
+    m_irA.setNormalise(normalise);
+    m_irB.setNormalise(normalise);
+}
+
 } // namespace DSP

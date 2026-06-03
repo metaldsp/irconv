@@ -56,6 +56,13 @@ public:
     void clearImpulseResponseA() noexcept;
     void clearImpulseResponseB() noexcept;
 
+    /**
+     * Enables or disables peak normalisation applied to both IR A and IR B
+     * when loading. Takes effect on the next loadImpulseResponse() call;
+     * does not retroactively alter already-loaded IRs. Message-thread only.
+     */
+    void setNormalise(bool normalise) noexcept;
+
     //==============================================================================
     // Audio-thread safe. Stores the target value atomically; the smoother
     // ramps to it inside the next process() call.
