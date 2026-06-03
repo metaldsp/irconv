@@ -7,7 +7,93 @@
 
 namespace DSP {
 
-IrLoader::IrLoader()
+namespace {
+
+// IRs longer than this threshold use TwoStageFFTConvolver (background tail thread).
+// Below it, the simpler single-stage FFTConvolver is sufficient.
+static constexpr size_t kTwoStageThreshold = 16384;
+
+//==============================================================================
+// Background-threaded TwoStageFFTConvolver driven by a pair of WaitableEvents.
+//
+// startBackgroundProcessing() fires once per process() call (from the audio thread);
+// run() wakes, executes doBackgroundProcessing(), then signals completion.
+// waitForBackgroundProcessing() blocks until that signal arrives.
+// Because juce::WaitableEvent auto-resets on wait(), the protocol is race-free
+// as long as the caller always pairs start with wait before the next process().
+class JuceTwoStageConvolver : public fftconvolver::TwoStageFFTConvolver, private juce::Thread
+{
+public:
+    JuceTwoStageConvolver()
+        : juce::Thread("IR Convolver Tail")
+    {
+        startThread(juce::Thread::Priority::high);
+    }
+
+    ~JuceTwoStageConvolver() override
+    {
+        signalThreadShouldExit();
+        m_startEvent.signal(); // unblock run() if it is waiting
+        stopThread(500);
+        reset();
+    }
+
+protected:
+    void startBackgroundProcessing() override { m_startEvent.signal(); }
+
+    void waitForBackgroundProcessing() override { m_doneEvent.wait(); }
+
+private:
+    void run() override
+    {
+        while (!threadShouldExit()) {
+            m_startEvent.wait();
+            if (threadShouldExit())
+                break;
+            doBackgroundProcessing();
+            m_doneEvent.signal();
+        }
+    }
+
+    juce::WaitableEvent m_startEvent; // auto-reset, initially unsignalled
+    juce::WaitableEvent m_doneEvent;  // auto-reset, initially unsignalled
+};
+
+//==============================================================================
+struct SingleConvChannel : IrLoader::ConvChannel
+{
+    fftconvolver::FFTConvolver conv;
+
+    void process(const float *in, float *out, size_t len) override { conv.process(in, out, len); }
+
+    void resetState() override { conv.resetState(); }
+};
+
+struct TwoStageConvChannel : IrLoader::ConvChannel
+{
+    JuceTwoStageConvolver conv;
+
+    void process(const float *in, float *out, size_t len) override { conv.process(in, out, len); }
+
+    void resetState() override { conv.resetState(); }
+};
+
+//==============================================================================
+// Returns the smallest power of two that is >= value.
+inline size_t nextPowerOfTwo(size_t value) noexcept
+{
+    size_t p = 1;
+    while (p < value)
+        p *= 2;
+    return p;
+}
+
+} // namespace
+
+//==============================================================================
+
+IrLoader::IrLoader(bool normalise)
+    : m_normalise(normalise)
 {
     m_formatManager.registerBasicFormats();
 }
@@ -65,15 +151,19 @@ void IrLoader::process(juce::dsp::ProcessContextReplacing<float> &context)
 bool IrLoader::loadImpulseResponse(const juce::File &irFile)
 {
     std::unique_ptr<juce::AudioFormatReader> reader(m_formatManager.createReaderFor(irFile));
-    if (reader == nullptr)
+    if (reader == nullptr) {
+        DBG("IrLoader: unable to open " + irFile.getFullPathName());
         return false;
+    }
 
     const int numChannels = static_cast<int>(reader->numChannels);
     const int numSamples = static_cast<int>(reader->lengthInSamples);
 
     juce::AudioBuffer<float> buffer(numChannels, numSamples);
-    if (!reader->read(&buffer, 0, numSamples, 0, true, true))
+    if (!reader->read(&buffer, 0, numSamples, 0, true, true)) {
+        DBG("IrLoader: error reading " + irFile.getFullPathName());
         return false;
+    }
 
     return loadImpulseResponse(buffer, reader->sampleRate);
 }
@@ -84,6 +174,28 @@ bool IrLoader::loadImpulseResponse(const juce::AudioBuffer<float> &ir, double so
         return false;
 
     m_rawIrBuffer = ir;
+
+    if (m_normalise) {
+        // Step 1: peak-normalize so that the loudest sample reaches 0.8.
+        float peak = 0.0f;
+        for (int ch = 0; ch < m_rawIrBuffer.getNumChannels(); ++ch)
+            peak = std::max(peak, m_rawIrBuffer.getMagnitude(ch, 0, m_rawIrBuffer.getNumSamples()));
+
+        if (peak > 0.0f) {
+            m_rawIrBuffer.applyGain(0.8f / peak);
+
+            // Step 2: scale by 1/energy so the sum-of-squares equals 1.
+            double sumSq = 0.0;
+            for (int ch = 0; ch < m_rawIrBuffer.getNumChannels(); ++ch) {
+                const float *data = m_rawIrBuffer.getReadPointer(ch);
+                for (int i = 0; i < m_rawIrBuffer.getNumSamples(); ++i)
+                    sumSq += static_cast<double>(data[i]) * data[i];
+            }
+            if (sumSq > 0.0)
+                m_rawIrBuffer.applyGain(static_cast<float>(1.0 / sumSq));
+        }
+    }
+
     m_sourceSampleRate = sourceSampleRate;
     m_irStored.store(true, std::memory_order_release);
 
@@ -109,7 +221,7 @@ void IrLoader::initConvolvers(const juce::AudioBuffer<float> &ir)
 {
     const int numIrChannels = ir.getNumChannels();
     const auto irLen = static_cast<size_t>(ir.getNumSamples());
-    const auto blockSize = static_cast<size_t>(m_spec.maximumBlockSize);
+    const size_t headBlockSize = nextPowerOfTwo(static_cast<size_t>(m_spec.maximumBlockSize));
 
     // Build into the slot that is not currently active so the audio thread
     // always reads from a stable, fully-initialised set.
@@ -117,14 +229,27 @@ void IrLoader::initConvolvers(const juce::AudioBuffer<float> &ir)
     const int build = (current == 0) ? 1 : 0;
 
     auto &set = m_sets[build];
+    set.convs.clear();
     set.convs.resize(m_spec.numChannels);
 
-    for (size_t ch = 0; ch < m_spec.numChannels; ++ch) {
-        if (!set.convs[ch])
-            set.convs[ch] = std::make_unique<fftconvolver::FFTConvolver>();
+    if (irLen > kTwoStageThreshold) {
+        // Large IR: use TwoStageFFTConvolver so the tail runs on a background thread.
+        const size_t tailBlockSize = std::max(headBlockSize, size_t{8192});
 
-        const int irCh = static_cast<int>(ch) % numIrChannels;
-        set.convs[ch]->init(blockSize, ir.getReadPointer(irCh), irLen);
+        for (size_t ch = 0; ch < m_spec.numChannels; ++ch) {
+            const int irCh = static_cast<int>(ch) % numIrChannels;
+            auto channel = std::make_unique<TwoStageConvChannel>();
+            channel->conv.init(headBlockSize, tailBlockSize, ir.getReadPointer(irCh), irLen);
+            set.convs[ch] = std::move(channel);
+        }
+    } else {
+        // Small IR: use single-stage FFTConvolver, no background thread needed.
+        for (size_t ch = 0; ch < m_spec.numChannels; ++ch) {
+            const int irCh = static_cast<int>(ch) % numIrChannels;
+            auto channel = std::make_unique<SingleConvChannel>();
+            channel->conv.init(headBlockSize, ir.getReadPointer(irCh), irLen);
+            set.convs[ch] = std::move(channel);
+        }
     }
 
     // Publish: the audio thread will pick up the new slot on its next callback.
@@ -135,17 +260,20 @@ juce::AudioBuffer<float> IrLoader::resampleIR(
     const juce::AudioBuffer<float> &ir, double sourceSampleRate, double targetSampleRate)
 {
     const double ratio = sourceSampleRate / targetSampleRate;
-    const int numChannels = ir.getNumChannels();
-    const int newLength
-        = std::max(1, juce::roundToInt(static_cast<double>(ir.getNumSamples()) / ratio));
+    const int newLen = std::max(1, juce::roundToInt(ir.getNumSamples() / ratio));
+    const int nCh = ir.getNumChannels();
 
-    juce::AudioBuffer<float> output(numChannels, newLength);
+    // MemoryAudioSource requires a non-const buffer reference; copy to satisfy that.
+    juce::AudioBuffer<float> mutableCopy(ir);
+    juce::MemoryAudioSource memSource(mutableCopy, /*copyMemory=*/false, /*shouldLoop=*/false);
 
-    for (int ch = 0; ch < numChannels; ++ch) {
-        juce::LagrangeInterpolator interpolator;
-        interpolator.reset();
-        interpolator.process(ratio, ir.getReadPointer(ch), output.getWritePointer(ch), newLength);
-    }
+    juce::ResamplingAudioSource resampler(&memSource, /*deleteSourceWhenDeleted=*/false, nCh);
+    resampler.setResamplingRatio(ratio);
+    resampler.prepareToPlay(newLen, targetSampleRate);
+
+    juce::AudioBuffer<float> output(nCh, newLen);
+    juce::AudioSourceChannelInfo info(&output, 0, newLen);
+    resampler.getNextAudioBlock(info);
 
     return output;
 }
