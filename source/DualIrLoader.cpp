@@ -64,11 +64,26 @@ void DualIrLoader::process(juce::dsp::ProcessContextReplacing<float> &context)
     const bool aLoaded = m_irA.isLoaded();
     const bool bLoaded = m_irB.isLoaded();
 
-    // Only blend when both IRs are active; otherwise route through whichever single IR
-    // is loaded (or do nothing if neither is).
     if (!aLoaded && !bLoaded)
         return;
 
+    // Stereo Split: IR A → left channel only, IR B → right channel only.
+    const auto mode = static_cast<StereoMode>(m_mode.load(std::memory_order_relaxed));
+    if (mode == StereoMode::StereoSplit) {
+        if (aLoaded && numCh >= 1) {
+            auto leftBlock = block.getSubsetChannelBlock(0, 1);
+            juce::dsp::ProcessContextReplacing<float> ctxA{leftBlock};
+            m_irA.process(ctxA);
+        }
+        if (bLoaded && numCh >= 2) {
+            auto rightBlock = block.getSubsetChannelBlock(1, 1);
+            juce::dsp::ProcessContextReplacing<float> ctxB{rightBlock};
+            m_irB.process(ctxB);
+        }
+        return;
+    }
+
+    // Blend mode: route through whichever single IR is loaded, or crossfade both.
     if (aLoaded && !bLoaded) {
         m_irA.process(context);
         return;
@@ -140,6 +155,16 @@ bool DualIrLoader::loadImpulseResponseB(const juce::AudioBuffer<float> &ir, doub
 void DualIrLoader::setBlend(float blend01) noexcept
 {
     m_blendTarget.store(juce::jlimit(0.0f, 1.0f, blend01), std::memory_order_relaxed);
+}
+
+void DualIrLoader::setMode(StereoMode mode) noexcept
+{
+    m_mode.store(static_cast<int>(mode), std::memory_order_relaxed);
+}
+
+DualIrLoader::StereoMode DualIrLoader::getMode() const noexcept
+{
+    return static_cast<StereoMode>(m_mode.load(std::memory_order_relaxed));
 }
 
 //==============================================================================
