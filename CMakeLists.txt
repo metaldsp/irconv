@@ -38,3 +38,11 @@ endif()
 #   target_link_libraries(MyTarget PRIVATE irconv)
 # ---------------------------------------------------------------------------
 juce_add_module("${CMAKE_CURRENT_SOURCE_DIR}")
+
+# Tests — only when irconv is the top-level project, not when used as a submodule
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+    include(CTest)
+    if(BUILD_TESTING)
+        add_subdirectory(tests)
+    endif()
+endif()

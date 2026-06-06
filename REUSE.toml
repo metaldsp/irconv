@@ -13,6 +13,7 @@ path = [
     ".vscode/**",
     ".claude/**",
     "CMakeLists.txt",
+    "tests/CMakeLists.txt",
     "README.md",
     "LICENSE",
     "LICENSES/**",
