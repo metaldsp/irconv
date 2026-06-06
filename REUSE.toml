@@ -14,6 +14,7 @@ path = [
     ".claude/**",
     "CMakeLists.txt",
     "README.md",
+    "LICENSE",
     "LICENSES/**",
 ]
 SPDX-FileCopyrightText = "2026 Pier Luigi Fiorini"
