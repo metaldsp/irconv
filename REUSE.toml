@@ -1,8 +1,13 @@
 version = 1
 
 [[annotations]]
-path = ["**.h", "**.cpp"]
+path = ["*.h", "*.cpp", "tests/*.cpp"]
 SPDX-FileCopyrightText = "2026 Pier Luigi Fiorini"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = ["3rdparty/FFTConvolver/**"]
+SPDX-FileCopyrightText = "2017 HiFi-LoFi"
 SPDX-License-Identifier = "MIT"
 
 [[annotations]]
@@ -17,6 +22,7 @@ path = [
     "README.md",
     "LICENSE",
     "LICENSES/**",
+    "REUSE.toml",
 ]
 SPDX-FileCopyrightText = "2026 Pier Luigi Fiorini"
 SPDX-License-Identifier = "CC0-1.0"
