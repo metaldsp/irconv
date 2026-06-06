@@ -9,6 +9,9 @@
 
 #include "irconv.h"
 
+#include "DualIrLoader.cpp"
+#include "IrLoader.cpp"
+
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
