@@ -1,7 +1,5 @@
-//======================================================================================
-// Copyright (c) 2026 Pier Luigi Fiorini
-// All rights reserved.
-//======================================================================================
+// SPDX-FileCopyrightText: 2026 Pier Luigi Fiorini
+// SPDX-License-Identifier: MIT
 
 #include "IrLoader.h"
 
