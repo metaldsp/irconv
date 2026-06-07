@@ -11,6 +11,7 @@
 
 #include "DualIrLoader.cpp"
 #include "IrLoader.cpp"
+#include "TimeAligner.cpp"
 
 #ifdef __clang__
 #pragma clang diagnostic pop

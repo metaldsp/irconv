@@ -24,3 +24,4 @@
 
 #include "DualIrLoader.h"
 #include "IrLoader.h"
+#include "TimeAligner.h"

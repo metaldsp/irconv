@@ -91,6 +91,18 @@ public:
      */
     void setNormalise(bool normalise) noexcept { m_normalise = normalise; }
 
+    /** Message-thread only. Returns the raw IR buffer at its original source rate. */
+    [[nodiscard]] const juce::AudioBuffer<float> &getRawIrBuffer() const noexcept
+    {
+        return m_rawIrBuffer;
+    }
+
+    /** Message-thread only. Returns the source sample rate of the stored raw IR. */
+    [[nodiscard]] double getSourceSampleRate() const noexcept { return m_sourceSampleRate; }
+
+    [[nodiscard]] static juce::AudioBuffer<float> resampleIR(
+        const juce::AudioBuffer<float> &ir, double sourceSampleRate, double targetSampleRate);
+
     // Type-erased per-channel convolver. Concrete implementations live in IrLoader.cpp.
     // Choosing single-stage vs two-stage at IR load time avoids runtime branching in process().
     struct ConvChannel
@@ -103,9 +115,6 @@ public:
 private:
     //==============================================================================
     void initConvolvers(const juce::AudioBuffer<float> &ir);
-
-    [[nodiscard]] static juce::AudioBuffer<float> resampleIR(
-        const juce::AudioBuffer<float> &ir, double sourceSampleRate, double targetSampleRate);
 
     //==============================================================================
     bool m_normalise;
