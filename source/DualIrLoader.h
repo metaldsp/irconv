@@ -64,6 +64,40 @@ public:
      */
     void setNormalise(bool normalise) noexcept;
 
+    /**
+     * Applies a time-alignment shift and optional polarity inversion to IR A.
+     * Re-derives a shifted/inverted copy from the stored raw IR A buffer and
+     * reloads it into the convolver. Message-thread only.
+     *
+     * @param delayMs        Delay in milliseconds. Positive = A lags reference
+     *                       (prepend silence). Negative = A leads (trim onset).
+     * @param invertPolarity Negate all samples when true.
+     */
+    void applyAlignmentToIrA(float delayMs, bool invertPolarity);
+
+    /**
+     * Applies a time-alignment shift and optional polarity inversion to IR B.
+     * Re-derives a shifted/inverted copy from the stored raw IR B buffer and
+     * reloads it into the convolver. Message-thread only.
+     *
+     * @param delayMs        Delay in milliseconds. Positive = B lags A
+     *                       (prepend silence). Negative = B leads A (trim onset).
+     * @param invertPolarity Negate all samples when true.
+     */
+    void applyAlignmentToIrB(float delayMs, bool invertPolarity);
+
+    // Message-thread only — not RT-safe.
+    [[nodiscard]] const juce::AudioBuffer<float> &getRawIrABuffer() const noexcept
+    {
+        return m_rawIrABuffer;
+    }
+    [[nodiscard]] const juce::AudioBuffer<float> &getRawIrBBuffer() const noexcept
+    {
+        return m_rawIrBBuffer;
+    }
+    [[nodiscard]] double getIrASourceRate() const noexcept { return m_irASourceRate; }
+    [[nodiscard]] double getIrBSourceRate() const noexcept { return m_irBSourceRate; }
+
     //==============================================================================
     // Audio-thread safe. Stores the target value atomically; the smoother
     // ramps to it inside the next process() call.
@@ -90,6 +124,13 @@ private:
 
     juce::File m_irAFile;
     juce::File m_irBFile;
+
+    // Raw IR buffers and metadata for alignment re-application.
+    juce::AudioBuffer<float> m_rawIrABuffer;
+    double m_irASourceRate = 0.0;
+    juce::AudioBuffer<float> m_rawIrBBuffer;
+    double m_irBSourceRate = 0.0;
+    double m_processingRate = 0.0; // cached in prepare()
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DualIrLoader)
 };
