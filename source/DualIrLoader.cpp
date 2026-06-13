@@ -226,6 +226,16 @@ DualIrLoader::StereoMode DualIrLoader::getMode() const noexcept
 
 //==============================================================================
 
+double DualIrLoader::getTailLengthSeconds() const noexcept
+{
+    double tail = 0.0;
+    if (m_irASourceRate > 0.0 && m_rawIrABuffer.getNumSamples() > 0)
+        tail = std::max(tail, m_rawIrABuffer.getNumSamples() / m_irASourceRate);
+    if (m_irBSourceRate > 0.0 && m_rawIrBBuffer.getNumSamples() > 0)
+        tail = std::max(tail, m_rawIrBBuffer.getNumSamples() / m_irBSourceRate);
+    return tail;
+}
+
 void DualIrLoader::clearImpulseResponseA() noexcept
 {
     m_irA.clearImpulseResponse();

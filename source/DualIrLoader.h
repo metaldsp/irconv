@@ -95,6 +95,7 @@ public:
     }
     [[nodiscard]] double getIrASourceRate() const noexcept { return m_irASourceRate; }
     [[nodiscard]] double getIrBSourceRate() const noexcept { return m_irBSourceRate; }
+    [[nodiscard]] double getTailLengthSeconds() const noexcept;
 
     //==============================================================================
     // Audio-thread safe. Stores the target value atomically; the smoother
