@@ -287,7 +287,9 @@ void DualIrLoader::applyAlignmentToIrA(float delayMs, bool invertPolarity)
         working = std::move(trimmed);
     }
 
+    m_irA.setNormalise(false);
     m_irA.loadImpulseResponse(working, workRate);
+    m_irA.setNormalise(true);
 }
 
 void DualIrLoader::applyAlignmentToIrB(float delayMs, bool invertPolarity)
@@ -331,7 +333,9 @@ void DualIrLoader::applyAlignmentToIrB(float delayMs, bool invertPolarity)
     }
 
     // Pass source rate so IrLoader resamples to processing rate automatically.
+    m_irB.setNormalise(false);
     m_irB.loadImpulseResponse(working, workRate);
+    m_irB.setNormalise(true);
 }
 
 } // namespace DSP
