@@ -11,6 +11,7 @@ path = [
     ".gitignore",
     ".github/**",
     ".vscode/**",
+    ".agents/**",
     ".claude/**",
     "CMakeLists.txt",
     "tests/CMakeLists.txt",
