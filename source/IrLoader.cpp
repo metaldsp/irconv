@@ -36,6 +36,20 @@ public:
         reset();
     }
 
+    // Hides (non-virtually) TwoStageFFTConvolver::init(). process() unconditionally
+    // waits for a prior startBackgroundProcessing() before its first tail block, so
+    // without this priming call the audio thread deadlocks on m_doneEvent the first
+    // time it reaches that wait — nothing would ever have signalled it.
+    bool init(
+        size_t headBlockSize, size_t tailBlockSize, const fftconvolver::Sample *ir, size_t irLen)
+    {
+        const bool ok
+            = fftconvolver::TwoStageFFTConvolver::init(headBlockSize, tailBlockSize, ir, irLen);
+        if (ok)
+            startBackgroundProcessing();
+        return ok;
+    }
+
 protected:
     void startBackgroundProcessing() override { m_startEvent.signal(); }
 
@@ -190,7 +204,7 @@ bool IrLoader::loadImpulseResponse(const juce::AudioBuffer<float> &ir, double so
                     sumSq += static_cast<double>(data[i]) * data[i];
             }
             if (sumSq > 0.0)
-                m_rawIrBuffer.applyGain(static_cast<float>(1.0 / sumSq));
+                m_rawIrBuffer.applyGain(static_cast<float>(1.0 / std::sqrt(sumSq)));
         }
     }
 
