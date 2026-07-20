@@ -24,4 +24,5 @@
 
 #include "source/DualIrLoader.h"
 #include "source/IrLoader.h"
+#include "source/IrFilter.h"
 #include "source/TimeAligner.h"

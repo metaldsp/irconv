@@ -61,6 +61,8 @@ void DualIrLoader::prepare(const juce::dsp::ProcessSpec &spec)
 {
     m_irA.prepare(spec);
     m_irB.prepare(spec);
+    m_filterA.prepare(spec);
+    m_filterB.prepare(spec);
 
     m_scratch.setSize(
         static_cast<int>(spec.numChannels),
@@ -81,6 +83,8 @@ void DualIrLoader::reset()
 {
     m_irA.reset();
     m_irB.reset();
+    m_filterA.reset();
+    m_filterB.reset();
     m_scratch.clear();
     m_blendSmoother.setCurrentAndTargetValue(m_blendSmoother.getTargetValue());
 }
@@ -119,23 +123,33 @@ void DualIrLoader::process(juce::dsp::ProcessContextReplacing<float> &context)
             auto leftBlock = block.getSubsetChannelBlock(0, 1);
             juce::dsp::ProcessContextReplacing<float> ctxA{leftBlock};
             m_irA.process(ctxA);
+            m_filterA.process(ctxA);
         }
         if (bLoaded && numCh >= 2) {
             auto rightBlock = block.getSubsetChannelBlock(1, 1);
             juce::dsp::ProcessContextReplacing<float> ctxB{rightBlock};
             m_irB.process(ctxB);
+            m_filterB.process(ctxB);
         }
         return;
     }
 
     // Blend mode: route through whichever single IR is loaded, or crossfade both.
+    // Clamped to `channels` for the same reason as the both-loaded path below: a host
+    // buffer wider than what prepare() provisioned must not be indexed out of bounds.
     if (aLoaded && !bLoaded) {
-        m_irA.process(context);
+        auto soloBlockA = block.getSubsetChannelBlock(0, channels);
+        juce::dsp::ProcessContextReplacing<float> ctxSoloA{soloBlockA};
+        m_irA.process(ctxSoloA);
+        m_filterA.process(ctxSoloA);
         return;
     }
 
     if (!aLoaded && bLoaded) {
-        m_irB.process(context);
+        auto soloBlockB = block.getSubsetChannelBlock(0, channels);
+        juce::dsp::ProcessContextReplacing<float> ctxSoloB{soloBlockB};
+        m_irB.process(ctxSoloB);
+        m_filterB.process(ctxSoloB);
         return;
     }
 
@@ -149,10 +163,12 @@ void DualIrLoader::process(juce::dsp::ProcessContextReplacing<float> &context)
     auto blockA = block.getSubsetChannelBlock(0, channels);
     juce::dsp::ProcessContextReplacing<float> ctxA{blockA};
     m_irA.process(ctxA);
+    m_filterA.process(ctxA);
 
     // Wet B in place on scratch.
     juce::dsp::ProcessContextReplacing<float> ctxB{scratch};
     m_irB.process(ctxB);
+    m_filterB.process(ctxB);
 
     // In-place linear crossfade: out[i] = wetA[i] * (1 - w[i]) + wetB[i] * w[i].
     // Two SIMD ramp passes per channel, zero extra copies.
@@ -212,6 +228,26 @@ bool DualIrLoader::loadImpulseResponseB(const juce::AudioBuffer<float> &ir, doub
 void DualIrLoader::setBlend(float blend01) noexcept
 {
     m_blendTarget.store(juce::jlimit(0.0f, 1.0f, blend01), std::memory_order_relaxed);
+}
+
+void DualIrLoader::setHighPassFrequencyA(float frequency) noexcept
+{
+    m_filterA.setHighPassFrequency(frequency);
+}
+
+void DualIrLoader::setLowPassFrequencyA(float frequency) noexcept
+{
+    m_filterA.setLowPassFrequency(frequency);
+}
+
+void DualIrLoader::setHighPassFrequencyB(float frequency) noexcept
+{
+    m_filterB.setHighPassFrequency(frequency);
+}
+
+void DualIrLoader::setLowPassFrequencyB(float frequency) noexcept
+{
+    m_filterB.setLowPassFrequency(frequency);
 }
 
 void DualIrLoader::setMode(StereoMode mode) noexcept

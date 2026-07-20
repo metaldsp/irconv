@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "IrFilter.h"
 #include "IrLoader.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -102,6 +103,15 @@ public:
     // ramps to it inside the next process() call.
     void setBlend(float blend01) noexcept;
 
+    /** Publishes IR A's HPF target from any thread without blocking. */
+    void setHighPassFrequencyA(float frequency) noexcept;
+    /** Publishes IR A's LPF target from any thread without blocking. */
+    void setLowPassFrequencyA(float frequency) noexcept;
+    /** Publishes IR B's HPF target from any thread without blocking. */
+    void setHighPassFrequencyB(float frequency) noexcept;
+    /** Publishes IR B's LPF target from any thread without blocking. */
+    void setLowPassFrequencyB(float frequency) noexcept;
+
     // Audio-thread safe. Switches between Blend and StereoSplit routing.
     void setMode(StereoMode mode) noexcept;
     [[nodiscard]] StereoMode getMode() const noexcept;
@@ -114,6 +124,8 @@ public:
 private:
     IrLoader m_irA;
     IrLoader m_irB;
+    IrFilter m_filterA;
+    IrFilter m_filterB;
 
     juce::AudioBuffer<float> m_scratch;               // sized in prepare(), reused in process()
     juce::LinearSmoothedValue<float> m_blendSmoother; // audio-thread only

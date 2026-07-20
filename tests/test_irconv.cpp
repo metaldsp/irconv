@@ -3,6 +3,7 @@
 
 #include <irconv/irconv.h>
 
+#include <array>
 #include <cmath>
 #include <cstdio>
 
@@ -147,6 +148,182 @@ static void test_DualIrLoader_AlignmentDoesNotChangeLevel()
     EXPECT_NEAR(peakBefore, peakAfter, 1e-3f);
 }
 
+static juce::AudioBuffer<float> makeIdentityIr()
+{
+    juce::AudioBuffer<float> ir(1, 128);
+    ir.clear();
+    ir.setSample(0, 0, 1.0f);
+    return ir;
+}
+
+static std::array<float, 2> renderDualSine(
+    DSP::DualIrLoader &loader,
+    int numChannels,
+    float frequency,
+    double sampleRate)
+{
+    constexpr int blockSize = 512;
+    constexpr int numBlocks = 24;
+    juce::AudioBuffer<float> buffer(numChannels, blockSize);
+    std::array<float, 2> levels{};
+
+    for (int blockIndex = 0; blockIndex < numBlocks; ++blockIndex) {
+        for (int sample = 0; sample < blockSize; ++sample) {
+            const auto absoluteSample = blockIndex * blockSize + sample;
+            const float value = static_cast<float>(std::sin(
+                juce::MathConstants<double>::twoPi * frequency * absoluteSample / sampleRate));
+            for (int channel = 0; channel < numChannels; ++channel)
+                buffer.setSample(channel, sample, value);
+        }
+
+        juce::dsp::AudioBlock<float> audioBlock(buffer);
+        juce::dsp::ProcessContextReplacing<float> context(audioBlock);
+        loader.process(context);
+    }
+
+    for (int channel = 0; channel < numChannels; ++channel)
+        levels[static_cast<size_t>(channel)] = buffer.getRMSLevel(channel, 0, blockSize);
+    return levels;
+}
+
+static void test_DualIrLoader_NoIrPreservesDrySignal()
+{
+    beginTest("DualIrLoader / NoIrPreservesDrySignal");
+    DSP::DualIrLoader loader;
+    loader.prepare({48000.0, 16, 2});
+
+    juce::AudioBuffer<float> buffer(2, 16);
+    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+            buffer.setSample(channel, sample, static_cast<float>(channel * 100 + sample));
+    const juce::AudioBuffer<float> expected(buffer);
+
+    juce::dsp::AudioBlock<float> block(buffer);
+    juce::dsp::ProcessContextReplacing<float> context(block);
+    loader.process(context);
+
+    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+            EXPECT_NEAR(buffer.getSample(channel, sample), expected.getSample(channel, sample), 0.0f);
+}
+
+static float renderSingleSlot(bool loadSlotA)
+{
+    constexpr double sampleRate = 48000.0;
+    DSP::DualIrLoader loader;
+    loader.setNormalise(false);
+    loader.setHighPassFrequencyA(400.0f);
+    loader.setLowPassFrequencyA(22000.0f);
+    loader.setHighPassFrequencyB(10.0f);
+    loader.setLowPassFrequencyB(22000.0f);
+    loader.prepare({sampleRate, 512, 1});
+
+    const auto identity = makeIdentityIr();
+    const bool loaded = loadSlotA ? loader.loadImpulseResponseA(identity, sampleRate)
+                                  : loader.loadImpulseResponseB(identity, sampleRate);
+    EXPECT_TRUE(loaded);
+    return renderDualSine(loader, 1, 40.0f, sampleRate)[0];
+}
+
+static void test_DualIrLoader_SingleLoadedSlotUsesItsOwnFilter()
+{
+    beginTest("DualIrLoader / SingleLoadedSlotUsesItsOwnFilter");
+    const float filteredA = renderSingleSlot(true);
+    const float openB = renderSingleSlot(false);
+    EXPECT_GT(openB, filteredA * 8.0f);
+}
+
+static float renderBlendEndpoint(float blend)
+{
+    constexpr double sampleRate = 48000.0;
+    DSP::DualIrLoader loader;
+    loader.setNormalise(false);
+    loader.setBlend(blend);
+    loader.setHighPassFrequencyA(10.0f);
+    loader.setLowPassFrequencyA(1000.0f);
+    loader.setHighPassFrequencyB(10.0f);
+    loader.setLowPassFrequencyB(22000.0f);
+    loader.prepare({sampleRate, 512, 1});
+
+    const auto identity = makeIdentityIr();
+    EXPECT_TRUE(loader.loadImpulseResponseA(identity, sampleRate));
+    EXPECT_TRUE(loader.loadImpulseResponseB(identity, sampleRate));
+    return renderDualSine(loader, 1, 8000.0f, sampleRate)[0];
+}
+
+static void test_DualIrLoader_BlendFiltersSlotsIndependently()
+{
+    beginTest("DualIrLoader / BlendFiltersSlotsIndependently");
+    const float filteredA = renderBlendEndpoint(0.0f);
+    const float openB = renderBlendEndpoint(1.0f);
+    EXPECT_GT(openB, filteredA * 8.0f);
+}
+
+static void test_DualIrLoader_StereoSplitFiltersSlotsIndependently()
+{
+    beginTest("DualIrLoader / StereoSplitFiltersSlotsIndependently");
+    constexpr double sampleRate = 48000.0;
+    DSP::DualIrLoader loader;
+    loader.setNormalise(false);
+    loader.setMode(DSP::DualIrLoader::StereoMode::StereoSplit);
+    loader.setHighPassFrequencyA(400.0f);
+    loader.setLowPassFrequencyA(22000.0f);
+    loader.setHighPassFrequencyB(10.0f);
+    loader.setLowPassFrequencyB(22000.0f);
+    loader.prepare({sampleRate, 512, 2});
+
+    const auto identity = makeIdentityIr();
+    EXPECT_TRUE(loader.loadImpulseResponseA(identity, sampleRate));
+    EXPECT_TRUE(loader.loadImpulseResponseB(identity, sampleRate));
+    const auto levels = renderDualSine(loader, 2, 40.0f, sampleRate);
+    EXPECT_GT(levels[1], levels[0] * 8.0f);
+}
+
+static float processSine(DSP::IrFilter &filter, float frequency, double sampleRate)
+{
+    constexpr int numSamples = 8192;
+    juce::AudioBuffer<float> buffer(1, numSamples);
+    for (int sample = 0; sample < numSamples; ++sample)
+        buffer.setSample(
+            0,
+            sample,
+            static_cast<float>(
+                std::sin(juce::MathConstants<double>::twoPi * frequency * sample / sampleRate)));
+
+    juce::dsp::AudioBlock<float> block(buffer);
+    juce::dsp::ProcessContextReplacing<float> context(block);
+    filter.process(context);
+    return buffer.getRMSLevel(0, numSamples / 2, numSamples / 2);
+}
+
+static void test_IrFilter_PassesMidBandAndRejectsExtremes()
+{
+    beginTest("IrFilter / PassesMidBandAndRejectsExtremes");
+    constexpr double sampleRate = 48000.0;
+    DSP::IrFilter filter;
+    filter.setHighPassFrequency(400.0f);
+    filter.setLowPassFrequency(6000.0f);
+    filter.prepare({sampleRate, 8192, 1});
+
+    const float low = processSine(filter, 40.0f, sampleRate);
+    filter.reset();
+    const float mid = processSine(filter, 1000.0f, sampleRate);
+    filter.reset();
+    const float high = processSine(filter, 16000.0f, sampleRate);
+    EXPECT_GT(mid, low * 5.0f);
+    EXPECT_GT(mid, high * 3.0f);
+}
+
+static void test_IrFilter_ClampsCutoffBelowNyquist()
+{
+    beginTest("IrFilter / ClampsCutoffBelowNyquist");
+    DSP::IrFilter filter;
+    filter.setLowPassFrequency(22000.0f);
+    filter.prepare({16000.0, 256, 1});
+    const float level = processSine(filter, 1000.0f, 16000.0);
+    EXPECT_GT(level, 0.5f);
+}
+
 // ---------------------------------------------------------------------------
 
 int main()
@@ -159,6 +336,12 @@ int main()
     test_IrLoader_LoadFromBuffer();
     test_IrLoader_ClearUnloadsConvolver();
     test_DualIrLoader_AlignmentDoesNotChangeLevel();
+    test_DualIrLoader_NoIrPreservesDrySignal();
+    test_DualIrLoader_SingleLoadedSlotUsesItsOwnFilter();
+    test_DualIrLoader_BlendFiltersSlotsIndependently();
+    test_DualIrLoader_StereoSplitFiltersSlotsIndependently();
+    test_IrFilter_PassesMidBandAndRejectsExtremes();
+    test_IrFilter_ClampsCutoffBelowNyquist();
 
     if (g_failures == 0)
         std::printf("All tests passed.\n");
