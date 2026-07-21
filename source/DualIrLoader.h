@@ -112,6 +112,11 @@ public:
     /** Publishes IR B's LPF target from any thread without blocking. */
     void setLowPassFrequencyB(float frequency) noexcept;
 
+    /** Publishes IR A's output gain target (dB) from any thread without blocking. */
+    void setGainA(float decibels) noexcept;
+    /** Publishes IR B's output gain target (dB) from any thread without blocking. */
+    void setGainB(float decibels) noexcept;
+
     // Audio-thread safe. Switches between Blend and StereoSplit routing.
     void setMode(StereoMode mode) noexcept;
     [[nodiscard]] StereoMode getMode() const noexcept;
@@ -126,6 +131,8 @@ private:
     IrLoader m_irB;
     IrFilter m_filterA;
     IrFilter m_filterB;
+    juce::dsp::Gain<float> m_gainA;
+    juce::dsp::Gain<float> m_gainB;
 
     juce::AudioBuffer<float> m_scratch;               // sized in prepare(), reused in process()
     juce::LinearSmoothedValue<float> m_blendSmoother; // audio-thread only

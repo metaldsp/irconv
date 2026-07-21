@@ -63,6 +63,10 @@ void DualIrLoader::prepare(const juce::dsp::ProcessSpec &spec)
     m_irB.prepare(spec);
     m_filterA.prepare(spec);
     m_filterB.prepare(spec);
+    m_gainA.prepare(spec);
+    m_gainA.setRampDurationSeconds(kBlendRampSeconds);
+    m_gainB.prepare(spec);
+    m_gainB.setRampDurationSeconds(kBlendRampSeconds);
 
     m_scratch.setSize(
         static_cast<int>(spec.numChannels),
@@ -85,6 +89,8 @@ void DualIrLoader::reset()
     m_irB.reset();
     m_filterA.reset();
     m_filterB.reset();
+    m_gainA.reset();
+    m_gainB.reset();
     m_scratch.clear();
     m_blendSmoother.setCurrentAndTargetValue(m_blendSmoother.getTargetValue());
 }
@@ -124,12 +130,14 @@ void DualIrLoader::process(juce::dsp::ProcessContextReplacing<float> &context)
             juce::dsp::ProcessContextReplacing<float> ctxA{leftBlock};
             m_irA.process(ctxA);
             m_filterA.process(ctxA);
+            m_gainA.process(ctxA);
         }
         if (bLoaded && numCh >= 2) {
             auto rightBlock = block.getSubsetChannelBlock(1, 1);
             juce::dsp::ProcessContextReplacing<float> ctxB{rightBlock};
             m_irB.process(ctxB);
             m_filterB.process(ctxB);
+            m_gainB.process(ctxB);
         }
         return;
     }
@@ -142,6 +150,7 @@ void DualIrLoader::process(juce::dsp::ProcessContextReplacing<float> &context)
         juce::dsp::ProcessContextReplacing<float> ctxSoloA{soloBlockA};
         m_irA.process(ctxSoloA);
         m_filterA.process(ctxSoloA);
+        m_gainA.process(ctxSoloA);
         return;
     }
 
@@ -150,6 +159,7 @@ void DualIrLoader::process(juce::dsp::ProcessContextReplacing<float> &context)
         juce::dsp::ProcessContextReplacing<float> ctxSoloB{soloBlockB};
         m_irB.process(ctxSoloB);
         m_filterB.process(ctxSoloB);
+        m_gainB.process(ctxSoloB);
         return;
     }
 
@@ -164,11 +174,13 @@ void DualIrLoader::process(juce::dsp::ProcessContextReplacing<float> &context)
     juce::dsp::ProcessContextReplacing<float> ctxA{blockA};
     m_irA.process(ctxA);
     m_filterA.process(ctxA);
+    m_gainA.process(ctxA);
 
     // Wet B in place on scratch.
     juce::dsp::ProcessContextReplacing<float> ctxB{scratch};
     m_irB.process(ctxB);
     m_filterB.process(ctxB);
+    m_gainB.process(ctxB);
 
     // In-place linear crossfade: out[i] = wetA[i] * (1 - w[i]) + wetB[i] * w[i].
     // Two SIMD ramp passes per channel, zero extra copies.
@@ -248,6 +260,16 @@ void DualIrLoader::setHighPassFrequencyB(float frequency) noexcept
 void DualIrLoader::setLowPassFrequencyB(float frequency) noexcept
 {
     m_filterB.setLowPassFrequency(frequency);
+}
+
+void DualIrLoader::setGainA(float decibels) noexcept
+{
+    m_gainA.setGainDecibels(decibels);
+}
+
+void DualIrLoader::setGainB(float decibels) noexcept
+{
+    m_gainB.setGainDecibels(decibels);
 }
 
 void DualIrLoader::setMode(StereoMode mode) noexcept
