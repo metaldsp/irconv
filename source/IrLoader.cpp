@@ -196,7 +196,8 @@ bool IrLoader::loadImpulseResponse(const juce::AudioBuffer<float> &ir, double so
         if (peak > 0.0f) {
             m_rawIrBuffer.applyGain(0.8f / peak);
 
-            // Step 2: scale by 1/energy so the sum-of-squares equals 1.
+            // Step 2: scale by 1/energy (sum-of-squares) so the convolved
+            // output level matches the input level instead of gaining it up.
             double sumSq = 0.0;
             for (int ch = 0; ch < m_rawIrBuffer.getNumChannels(); ++ch) {
                 const float *data = m_rawIrBuffer.getReadPointer(ch);
@@ -204,7 +205,7 @@ bool IrLoader::loadImpulseResponse(const juce::AudioBuffer<float> &ir, double so
                     sumSq += static_cast<double>(data[i]) * data[i];
             }
             if (sumSq > 0.0)
-                m_rawIrBuffer.applyGain(static_cast<float>(1.0 / std::sqrt(sumSq)));
+                m_rawIrBuffer.applyGain(static_cast<float>(1.0 / sumSq));
         }
     }
 
