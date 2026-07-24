@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.28)
 
 # Project name and version
-project(irconv VERSION 0.1.0 LANGUAGES CXX)
+project(irconv VERSION 0.1.0 LANGUAGES C CXX)
 
 # Always use the newest C++ standard on green-field projects if possible.
 set(CMAKE_CXX_STANDARD 23)
