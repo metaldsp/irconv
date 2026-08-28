@@ -3,6 +3,8 @@
 
 #include "DualIrLoader.h"
 
+#include "TimeAligner.h"
+
 namespace DSP {
 
 namespace {
@@ -11,51 +13,17 @@ constexpr double kBlendRampSeconds = 0.02; // 20 ms — fast enough to feel
                                            // instant, slow enough to silence
                                            // zipper noise on knob sweeps.
 
-// Build a fractional-delay FIR (N-tap windowed sinc, Blackman window).
-// frac is in [0, 1). Returns a kernel of length N.
-std::vector<float> fractionalDelaySinc(float frac, int N = 16)
-{
-    std::vector<float> h(static_cast<size_t>(N));
-    const int center = N / 2;
-    for (int i = 0; i < N; ++i) {
-        const float x = static_cast<float>(i - center) - frac;
-        float sinc = (std::abs(x) < 1e-6f) ? 1.0f
-                                           : std::sin(juce::MathConstants<float>::pi * x)
-                                                 / (juce::MathConstants<float>::pi * x);
-        // Blackman window
-        const float w = 0.42f - 0.5f * std::cos(2.0f * juce::MathConstants<float>::pi * i / (N - 1))
-                        + 0.08f * std::cos(4.0f * juce::MathConstants<float>::pi * i / (N - 1));
-        h[static_cast<size_t>(i)] = sinc * w;
-    }
-    return h;
-}
-
-// Convolve src with a short kernel into dst (same length as src, causal).
-juce::AudioBuffer<float> applyFir(
-    const juce::AudioBuffer<float> &src, const std::vector<float> &kernel)
-{
-    const int nCh = src.getNumChannels();
-    const int nSamp = src.getNumSamples();
-    const int kLen = static_cast<int>(kernel.size());
-    juce::AudioBuffer<float> dst(nCh, nSamp);
-    dst.clear();
-    for (int ch = 0; ch < nCh; ++ch) {
-        const float *in = src.getReadPointer(ch);
-        float *out = dst.getWritePointer(ch);
-        for (int i = 0; i < nSamp; ++i) {
-            float acc = 0.0f;
-            for (int k = 0; k < kLen; ++k) {
-                const int j = i - k;
-                if (j >= 0)
-                    acc += in[j] * kernel[static_cast<size_t>(k)];
-            }
-            out[i] = acc;
-        }
-    }
-    return dst;
-}
-
 } // namespace
+
+DualIrLoader::DualIrLoader()
+{
+    // juce::dsp::Gain wraps a linear juce::SmoothedValue, whose default value is 0 —
+    // i.e. silence. Seed both slots at unity so a host that never touches the gain
+    // still hears the wet signal. prepare() propagates this target to the smoother's
+    // current value, so a setGainA/B() call made before prepare() is still honoured.
+    m_gainA.setGainLinear(1.0f);
+    m_gainB.setGainLinear(1.0f);
+}
 
 void DualIrLoader::prepare(const juce::dsp::ProcessSpec &spec)
 {
@@ -321,40 +289,15 @@ void DualIrLoader::applyAlignmentToIrA(float delayMs, bool invertPolarity)
     if (m_rawIrABuffer.getNumSamples() == 0)
         return;
 
+    // Work in source-rate samples; IrLoader::loadImpulseResponse handles resampling.
     const double workRate = (m_irASourceRate > 0.0)
                                 ? m_irASourceRate
                                 : (m_processingRate > 0.0 ? m_processingRate : 44100.0);
 
-    juce::AudioBuffer<float> working = m_rawIrABuffer;
+    const auto working
+        = TimeAligner::applyAlignment(m_rawIrABuffer, workRate, delayMs, invertPolarity);
 
-    if (invertPolarity)
-        working.applyGain(-1.0f);
-
-    const double delaySamples = delayMs * 0.001 * workRate;
-    const int intDelay = juce::roundToInt(static_cast<float>(delaySamples));
-    const float fracDelay = static_cast<float>(delaySamples - intDelay);
-
-    if (std::abs(fracDelay) > 1e-3f)
-        working = applyFir(working, fractionalDelaySinc(fracDelay));
-
-    if (intDelay > 0) {
-        const int nCh = working.getNumChannels();
-        const int nSamp = working.getNumSamples();
-        juce::AudioBuffer<float> delayed(nCh, nSamp + intDelay);
-        delayed.clear();
-        for (int ch = 0; ch < nCh; ++ch)
-            delayed.copyFrom(ch, intDelay, working, ch, 0, nSamp);
-        working = std::move(delayed);
-    } else if (intDelay < 0) {
-        const int trim = std::min(-intDelay, working.getNumSamples() - 1);
-        const int nCh = working.getNumChannels();
-        const int newLen = working.getNumSamples() - trim;
-        juce::AudioBuffer<float> trimmed(nCh, newLen);
-        for (int ch = 0; ch < nCh; ++ch)
-            trimmed.copyFrom(ch, 0, working, ch, trim, newLen);
-        working = std::move(trimmed);
-    }
-
+    // m_rawIrABuffer is already normalised, so re-normalising here would scale twice.
     m_irA.setNormalise(false);
     m_irA.loadImpulseResponse(working, workRate);
     m_irA.setNormalise(true);
@@ -370,37 +313,10 @@ void DualIrLoader::applyAlignmentToIrB(float delayMs, bool invertPolarity)
                                 ? m_irBSourceRate
                                 : (m_processingRate > 0.0 ? m_processingRate : 44100.0);
 
-    juce::AudioBuffer<float> working = m_rawIrBBuffer;
+    const auto working
+        = TimeAligner::applyAlignment(m_rawIrBBuffer, workRate, delayMs, invertPolarity);
 
-    if (invertPolarity)
-        working.applyGain(-1.0f);
-
-    const double delaySamples = delayMs * 0.001 * workRate;
-    const int intDelay = juce::roundToInt(static_cast<float>(delaySamples));
-    const float fracDelay = static_cast<float>(delaySamples - intDelay);
-
-    if (std::abs(fracDelay) > 1e-3f)
-        working = applyFir(working, fractionalDelaySinc(fracDelay));
-
-    if (intDelay > 0) {
-        const int nCh = working.getNumChannels();
-        const int nSamp = working.getNumSamples();
-        juce::AudioBuffer<float> delayed(nCh, nSamp + intDelay);
-        delayed.clear();
-        for (int ch = 0; ch < nCh; ++ch)
-            delayed.copyFrom(ch, intDelay, working, ch, 0, nSamp);
-        working = std::move(delayed);
-    } else if (intDelay < 0) {
-        const int trim = std::min(-intDelay, working.getNumSamples() - 1);
-        const int nCh = working.getNumChannels();
-        const int newLen = working.getNumSamples() - trim;
-        juce::AudioBuffer<float> trimmed(nCh, newLen);
-        for (int ch = 0; ch < nCh; ++ch)
-            trimmed.copyFrom(ch, 0, working, ch, trim, newLen);
-        working = std::move(trimmed);
-    }
-
-    // Pass source rate so IrLoader resamples to processing rate automatically.
+    // m_rawIrBBuffer is already normalised, so re-normalising here would scale twice.
     m_irB.setNormalise(false);
     m_irB.loadImpulseResponse(working, workRate);
     m_irB.setNormalise(true);

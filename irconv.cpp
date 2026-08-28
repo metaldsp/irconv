@@ -10,8 +10,9 @@
 #include "irconv.h"
 
 #include "source/DualIrLoader.cpp"
-#include "source/IrLoader.cpp"
 #include "source/IrFilter.cpp"
+#include "source/IrLoader.cpp"
+#include "source/MultiIrLoader.cpp"
 #include "source/TimeAligner.cpp"
 
 #ifdef __clang__

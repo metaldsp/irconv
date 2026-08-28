@@ -36,6 +36,24 @@ public:
         const juce::AudioBuffer<float> &irB,
         double sampleRate,
         float searchWindowMs = 25.0f);
+
+    /**
+     * Returns a copy of `ir` shifted in time and optionally polarity-inverted —
+     * the correction half of analyse().
+     *
+     * Sub-sample fractions are applied with a 16-tap Blackman-windowed sinc
+     * fractional-delay FIR. A positive delay prepends silence (lengthening the
+     * buffer); a negative delay trims the onset.
+     *
+     * Allocates and runs entirely on the calling thread — non-RT only.
+     *
+     * @param ir             Source IR. Returned unchanged if empty.
+     * @param sampleRate     Rate at which `delayMs` is interpreted.
+     * @param delayMs        Delay in milliseconds. Positive = lag, negative = lead.
+     * @param invertPolarity Negate all samples when true.
+     */
+    [[nodiscard]] static juce::AudioBuffer<float> applyAlignment(
+        const juce::AudioBuffer<float> &ir, double sampleRate, float delayMs, bool invertPolarity);
 };
 
 } // namespace DSP
