@@ -41,12 +41,12 @@ namespace DSP {
  * thread only.
  *
  * Cost model: any IR longer than 16384 samples makes IrLoader select a
- * two-stage convolver with one background tail thread *per audio channel*, and
- * process() performs one signal/wait round-trip per active slot, serially. A
- * full set of long stereo IRs is therefore expensive — eight slots in stereo is
- * up to sixteen tail threads. Slots whose weight is zero across the whole block
- * are skipped entirely, which is what keeps the realistic case (two or three
- * audible slots) affordable.
+ * two-stage convolver with one background tail thread *per audio channel*, each
+ * with its own signal/wait handshake. process() therefore performs one
+ * round-trip per channel of every active slot, serially — eight slots in stereo
+ * is up to sixteen tail threads. Slots whose weight is zero across the whole
+ * block are skipped entirely, which is what keeps the realistic case (two or
+ * three audible slots) affordable.
  */
 class MultiIrLoader
 {
@@ -59,8 +59,9 @@ public:
 
     /**
      * @param numSlots Number of IR slots, clamped to [1, maxSlots]. Fixed for the
-     *                 lifetime of the object; every per-slot allocation happens
-     *                 here so that prepare() and process() never resize anything.
+     *                 lifetime of the object, so every allocation that scales with
+     *                 the slot count happens here. prepare() still sizes the
+     *                 channel scratch buffers; process() allocates nothing.
      */
     explicit MultiIrLoader(int numSlots = defaultNumSlots);
     ~MultiIrLoader() = default;
@@ -149,9 +150,10 @@ public:
      * renormalising the whole set.
      *
      * `percent` is a relative weight, NOT a guaranteed share of the output:
-     * getWeightPercent(slot) reads back `percent` only if the other requested
-     * weights happen to total (100 - percent). Prefer setWeights() when changing
-     * more than one slot. A no-op if `slot` is out of range.
+     * getWeightPercent(slot) reads back `percent` only when this slot is loaded
+     * and the requested weights of the other *loaded* slots happen to total
+     * (100 - percent). Prefer setWeights() when changing more than one slot.
+     * A no-op if `slot` is out of range.
      */
     void setWeightPercent(int slot, float percent) noexcept;
 

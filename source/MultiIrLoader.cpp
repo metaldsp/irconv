@@ -59,20 +59,27 @@ void MultiIrLoader::prepare(const juce::dsp::ProcessSpec &spec)
 {
     m_processingRate = spec.sampleRate;
 
-    const int ws = m_activeWeightSet.load(std::memory_order_acquire);
-
-    for (size_t i = 0; i < m_slots.size(); ++i) {
-        auto &slot = m_slots[i];
-
+    for (auto &slot : m_slots) {
         slot.ir.prepare(spec);
         slot.filter.prepare(spec);
         slot.gain.prepare(spec);
         slot.gain.setRampDurationSeconds(kWeightRampSeconds);
+    }
 
+    // IrLoader defers building its convolvers until it has been prepared, so an IR
+    // loaded before this call only becomes visible to isLoaded() just now. Weights
+    // normalise over the loaded slots, so republish here — otherwise a caller that
+    // loads before preparing would be left with the all-zero set published while
+    // every slot still looked empty, and process() would output silence forever.
+    publishWeights();
+
+    const int ws = m_activeWeightSet.load(std::memory_order_acquire);
+
+    for (size_t i = 0; i < m_slots.size(); ++i) {
         // Seat the smoother on the published weight so that weights set before
         // prepare() take effect immediately instead of ramping up from zero.
-        slot.weightSmoother.reset(spec.sampleRate, kWeightRampSeconds);
-        slot.weightSmoother.setCurrentAndTargetValue(m_weightSets[ws][i]);
+        m_slots[i].weightSmoother.reset(spec.sampleRate, kWeightRampSeconds);
+        m_slots[i].weightSmoother.setCurrentAndTargetValue(m_weightSets[ws][i]);
     }
 
     m_dry.setSize(
@@ -125,8 +132,11 @@ void MultiIrLoader::process(juce::dsp::ProcessContextReplacing<float> &context)
 
     jassert(numSamples <= static_cast<size_t>(m_dry.getNumSamples()));
 
-    // Snapshot the published weights once. The writer always fills the inactive
-    // row before flipping the index, so this row is stable for the whole block.
+    // Snapshot the published weights once. The writer fills the inactive row
+    // before flipping the index, so a single publish can never be observed
+    // half-applied. Two publishes while this block is in flight would reach the
+    // row being read here, which the intended one-publish-per-drag-frame usage
+    // does not do; the worst case is a mix one frame stale, never a torn one.
     const int ws = m_activeWeightSet.load(std::memory_order_acquire);
     const auto &weights = m_weightSets[ws];
 
