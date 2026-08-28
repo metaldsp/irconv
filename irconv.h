@@ -23,6 +23,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include "source/DualIrLoader.h"
-#include "source/IrLoader.h"
 #include "source/IrFilter.h"
+#include "source/IrLoader.h"
+#include "source/MultiIrLoader.h"
 #include "source/TimeAligner.h"
