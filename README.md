@@ -41,8 +41,20 @@ JUCE must already be available before `juce_add_module` is called. The module de
 irconv/
 ├── irconv.h        # JUCE module declaration and public header umbrella
 ├── irconv.cpp      # Module unity-build entry point
+├── docs/           # Per-class documentation
 └── source/         # Implementation (headers and .cpp files)
 ```
+
+The `source/` directory provides `DSP::IrLoader` (partitioned FFT convolution),
+`DSP::IrFilter` (per-IR HPF/LPF voicing), `DSP::TimeAligner` (delay and polarity
+analysis), `DSP::DualIrLoader` (two IRs blended or split across the stereo field)
+and `DSP::MultiIrLoader` (N IRs convolved in parallel and mixed with per-slot
+weights, for morph-pad style controls).
+
+## Documentation
+
+- [`DSP::MultiIrLoader`](docs/MultiIrLoader.md) — N-slot parallel convolution
+  with weighted mixing.
 
 ## License
 

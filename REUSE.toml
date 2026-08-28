@@ -15,6 +15,7 @@ path = [
     ".claude/**",
     "CMakeLists.txt",
     "tests/CMakeLists.txt",
+    "docs/**",
     "README.md",
     "LICENSE",
     "LICENSES/**",
