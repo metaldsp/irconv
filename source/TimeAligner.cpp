@@ -9,6 +9,50 @@ namespace DSP {
 
 namespace {
 
+// Build a fractional-delay FIR (N-tap windowed sinc, Blackman window).
+// frac is in [0, 1). Returns a kernel of length N.
+std::vector<float> fractionalDelaySinc(float frac, int N = 16)
+{
+    std::vector<float> h(static_cast<size_t>(N));
+    const int center = N / 2;
+    for (int i = 0; i < N; ++i) {
+        const float x = static_cast<float>(i - center) - frac;
+        float sinc = (std::abs(x) < 1e-6f) ? 1.0f
+                                           : std::sin(juce::MathConstants<float>::pi * x)
+                                                 / (juce::MathConstants<float>::pi * x);
+        // Blackman window
+        const float w = 0.42f - 0.5f * std::cos(2.0f * juce::MathConstants<float>::pi * i / (N - 1))
+                        + 0.08f * std::cos(4.0f * juce::MathConstants<float>::pi * i / (N - 1));
+        h[static_cast<size_t>(i)] = sinc * w;
+    }
+    return h;
+}
+
+// Convolve src with a short kernel into dst (same length as src, causal).
+juce::AudioBuffer<float> applyFir(
+    const juce::AudioBuffer<float> &src, const std::vector<float> &kernel)
+{
+    const int nCh = src.getNumChannels();
+    const int nSamp = src.getNumSamples();
+    const int kLen = static_cast<int>(kernel.size());
+    juce::AudioBuffer<float> dst(nCh, nSamp);
+    dst.clear();
+    for (int ch = 0; ch < nCh; ++ch) {
+        const float *in = src.getReadPointer(ch);
+        float *out = dst.getWritePointer(ch);
+        for (int i = 0; i < nSamp; ++i) {
+            float acc = 0.0f;
+            for (int k = 0; k < kLen; ++k) {
+                const int j = i - k;
+                if (j >= 0)
+                    acc += in[j] * kernel[static_cast<size_t>(k)];
+            }
+            out[i] = acc;
+        }
+    }
+    return dst;
+}
+
 // Mono-mix an AudioBuffer into a std::vector<float> of length `len`,
 // using only the first channel (sufficient for cab IR onset detection).
 std::vector<float> monoChannel(const juce::AudioBuffer<float> &buf, int len)
@@ -145,6 +189,49 @@ AlignmentResult TimeAligner::analyse(
     const float score = std::min(peakAbs, 1.0f);
 
     return {delayInSamples, invertPolarity, score};
+}
+
+//==============================================================================
+
+juce::AudioBuffer<float> TimeAligner::applyAlignment(
+    const juce::AudioBuffer<float> &ir, double sampleRate, float delayMs, bool invertPolarity)
+{
+    if (ir.getNumSamples() == 0 || ir.getNumChannels() == 0)
+        return ir;
+
+    const double workRate = sampleRate > 0.0 ? sampleRate : 44100.0;
+
+    juce::AudioBuffer<float> working = ir;
+
+    if (invertPolarity)
+        working.applyGain(-1.0f);
+
+    const double delaySamples = delayMs * 0.001 * workRate;
+    const int intDelay = juce::roundToInt(static_cast<float>(delaySamples));
+    const float fracDelay = static_cast<float>(delaySamples - intDelay);
+
+    if (std::abs(fracDelay) > 1e-3f)
+        working = applyFir(working, fractionalDelaySinc(fracDelay));
+
+    if (intDelay > 0) {
+        const int nCh = working.getNumChannels();
+        const int nSamp = working.getNumSamples();
+        juce::AudioBuffer<float> delayed(nCh, nSamp + intDelay);
+        delayed.clear();
+        for (int ch = 0; ch < nCh; ++ch)
+            delayed.copyFrom(ch, intDelay, working, ch, 0, nSamp);
+        working = std::move(delayed);
+    } else if (intDelay < 0) {
+        const int trim = std::min(-intDelay, working.getNumSamples() - 1);
+        const int nCh = working.getNumChannels();
+        const int newLen = working.getNumSamples() - trim;
+        juce::AudioBuffer<float> trimmed(nCh, newLen);
+        for (int ch = 0; ch < nCh; ++ch)
+            trimmed.copyFrom(ch, 0, working, ch, trim, newLen);
+        working = std::move(trimmed);
+    }
+
+    return working;
 }
 
 } // namespace DSP
