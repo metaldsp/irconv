@@ -57,6 +57,16 @@ juce::AudioBuffer<float> applyFir(
 
 } // namespace
 
+DualIrLoader::DualIrLoader()
+{
+    // juce::dsp::Gain wraps a linear juce::SmoothedValue, whose default value is 0 —
+    // i.e. silence. Seed both slots at unity so a host that never touches the gain
+    // still hears the wet signal. prepare() propagates this target to the smoother's
+    // current value, so a setGainA/B() call made before prepare() is still honoured.
+    m_gainA.setGainLinear(1.0f);
+    m_gainB.setGainLinear(1.0f);
+}
+
 void DualIrLoader::prepare(const juce::dsp::ProcessSpec &spec)
 {
     m_irA.prepare(spec);

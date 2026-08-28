@@ -35,7 +35,7 @@ class DualIrLoader
 public:
     enum class StereoMode { Blend = 0, StereoSplit = 1 };
 
-    DualIrLoader() = default;
+    DualIrLoader();
     ~DualIrLoader() = default;
 
     //==============================================================================
